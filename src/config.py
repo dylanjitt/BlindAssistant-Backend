@@ -1,0 +1,24 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import cache
+# from dotenv import load_dotenv
+
+# print(load_dotenv())
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+    logMoney_file: str ="money.json"
+    logSign_file:str="letreros.json"
+    api_name: str = "Blind Assistant"
+    revision: str = "local"
+    model_moneyDet: str = "models/bolivian_money_detector_MK_I.pt"
+    model_minibusSign:str= "models/minibus_sign_detector_MK_I.pt"
+    llm: str = 'google/gemma-2-2b-it'
+    # tts_english:str='tts_models/en/ljspeech/fast_pitch'
+    # tts_spanish:str='tts_models/es/mai/tacotron2-DDC'
+    log_level: str = "DEBUG"
+
+
+@cache
+def get_settings():
+    print("getting settings...")
+    return Settings()
