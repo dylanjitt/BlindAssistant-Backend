@@ -6,7 +6,7 @@ import re
 from difflib import SequenceMatcher
 import numpy as np
 from src.models import Billete
-import json,os,uuid
+import json, os, uuid
 from src.config import get_settings
 
 SETTINGS = get_settings()
@@ -73,79 +73,178 @@ def remove_duplicates(boxes, confidences):
 
 # Main function to analyze image
 class BilleteDetector:
-  def showImg(self,img, output_json=SETTINGS.logMoney_file):
-      n=0
-      img_orig = cv2.imread(img) if isinstance(img, str) else img.copy()
-      #img_orig = img.copy()
-      
-      results = Imgmodel(img_orig)
-      reader = easyocr.Reader(['es'], gpu=True)
-      blue_shade = 255
+    def showImg(self, img, output_json=SETTINGS.logMoney_file):
+        n = 0
+        img_orig = cv2.imread(img) if isinstance(img, str) else img.copy()
+        
+        results = Imgmodel(img_orig)
+        reader = easyocr.Reader(['es'], gpu=True)
+        blue_shade = 255
 
-      boxes = []
-      confidences = []
-      labels = []
-      detecciones = []  # Lista para almacenar las detecciones de billetes
+        boxes = []
+        confidences = []
+        labels = []
+        detecciones = []  # Lista para almacenar las detecciones de billetes
 
-      for result in results:
-          for bbox in result.boxes:
-              conf = bbox.conf[0].item()
-              class_id = int(bbox.cls[0].item())
-              x1, y1, x2, y2 = map(int, bbox.xyxy[0])
+        for result in results:
+            for bbox in result.boxes:
+                conf = bbox.conf[0].item()
+                class_id = int(bbox.cls[0].item())
+                x1, y1, x2, y2 = map(int, bbox.xyxy[0])
 
-              boxes.append((x1, y1, x2, y2))
-              confidences.append(conf)
-              labels.append(result.names[class_id])
+                boxes.append((x1, y1, x2, y2))
+                confidences.append(conf)
+                labels.append(result.names[class_id])
 
-      unique_boxes = remove_duplicates(boxes, confidences)
+        unique_boxes = remove_duplicates(boxes, confidences)
 
-      for i, (x1, y1, x2, y2) in enumerate(unique_boxes):
-          conf = confidences[i]
-          label = labels[i]
+        for i, (x1, y1, x2, y2) in enumerate(unique_boxes):
+            conf = confidences[i]
+            label = labels[i]
 
-          if conf >= 0.6:
-              valueDetected = int(label.split('-')[0])  # Extrae el valor del nombre de la clase
-              n += valueDetected
-              cv2.rectangle(img_orig, (x1, y1), (x2, y2), (0, 255, 0), 3)
-              cv2.putText(img_orig, f"{label} ({conf:.2f})", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-              
-              # Crear un objeto Billete y añadirlo a la lista de detecciones
-              deteccion = Billete(value=valueDetected, position=[[x1, y1], [x2, y2]])
-              detecciones.append(deteccion.dict())  # Convertir a dict para JSON
-              
-          else:
-              img_crop = img_orig[y1:y2, x1:x2]
-              result_ocr = reader.readtext(img_crop)
-              words = []
-              cv2.rectangle(img_orig, (x1, y1), (x2, y2), (blue_shade, 0, 0), 2)
-              
-              for r in result_ocr:
-                  bbox_ocr, text, score = r
-                  if text in {'1', '2', '5', '10', '20', '50', '100', '200'} or is_similar(clean_string(text), 'BOLIVIANOS') or is_similar(clean_string(text), 'CENTAVOS'):
-                      x1_ocr, y1_ocr = int(bbox_ocr[0][0] + x1), int(bbox_ocr[0][1] + y1)
-                      x2_ocr, y2_ocr = int(bbox_ocr[2][0] + x1), int(bbox_ocr[2][1] + y1)
-                      cv2.rectangle(img_orig, (x1_ocr, y1_ocr), (x2_ocr, y2_ocr), (blue_shade, 0, 0), 2)
-                      cv2.putText(img_orig, text, (x1_ocr, y1_ocr - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (blue_shade, 0, 0), 2)
-                      words.append(text)
+            if conf >= 0.6:
+                valueDetected = int(label.split('-')[0])  # Extrae el valor del nombre de la clase
+                n += valueDetected
+                cv2.rectangle(img_orig, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                cv2.putText(img_orig, f"{label} ({conf:.2f})", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                
+                # Crear un objeto Billete y añadirlo a la lista de detecciones
+                deteccion = Billete(value=valueDetected, position=[[x1, y1], [x2, y2]])
+                detecciones.append(deteccion.dict())  # Convertir a dict para JSON
+                
+            else:
+                img_crop = img_orig[y1:y2, x1:x2]
+                result_ocr = reader.readtext(img_crop)
+                words = []
+                cv2.rectangle(img_orig, (x1, y1), (x2, y2), (blue_shade, 0, 0), 2)
+                
+                for r in result_ocr:
+                    bbox_ocr, text, score = r
+                    if text in {'1', '2', '5', '10', '20', '50', '100', '200'} or is_similar(clean_string(text), 'BOLIVIANOS') or is_similar(clean_string(text), 'CENTAVOS'):
+                        x1_ocr, y1_ocr = int(bbox_ocr[0][0] + x1), int(bbox_ocr[0][1] + y1)
+                        x2_ocr, y2_ocr = int(bbox_ocr[2][0] + x1), int(bbox_ocr[2][1] + y1)
+                        cv2.rectangle(img_orig, (x1_ocr, y1_ocr), (x2_ocr, y2_ocr), (blue_shade, 0, 0), 2)
+                        cv2.putText(img_orig, text, (x1_ocr, y1_ocr - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (blue_shade, 0, 0), 2)
+                        words.append(text)
 
-              if words:
-                  ocr_value = addBs(words, n)
-                  n += ocr_value
-                  deteccion = Billete(value=ocr_value, position=[[x1, y1], [x2, y2]])
-                  detecciones.append(deteccion.dict())
+                if words:
+                    ocr_value = addBs(words, n)
+                    n += ocr_value
+                    deteccion = Billete(value=ocr_value, position=[[x1, y1], [x2, y2]])
+                    detecciones.append(deteccion.dict())
 
-              blue_shade = max(0, blue_shade - 15)
+                blue_shade = max(0, blue_shade - 15)
 
-      img_rgb = cv2.cvtColor(img_orig, cv2.COLOR_BGR2RGB)
-      plt.imshow(img_rgb)
-      plt.show()
+        img_rgb = cv2.cvtColor(img_orig, cv2.COLOR_BGR2RGB)
+        plt.imshow(img_rgb)
+        plt.show()
 
-      # Guardar las detecciones en un archivo JSON
-      with open(output_json, 'w') as f:
-          json.dump(detecciones, f, indent=4)
+        # Guardar las detecciones en un archivo JSON
+        with open(output_json, 'w') as f:
+            json.dump(detecciones, f, indent=4)
 
-      return n, img_orig
-  
+        return n, img_orig
+
+    def describe_positions(self, json_file=SETTINGS.logMoney_file):
+        if not os.path.exists(json_file):
+            return "Detection file not found."
+
+        with open(json_file, 'r') as f:
+            detections = json.load(f)
+
+        if not detections:
+            return "No banknotes were detected, try again."
+
+        if len(detections) == 1:
+            return f"{int(detections[0]['value'])} Bolivianos"
+
+        # Calculate center points
+        banknotes = []
+        for det in detections:
+            x1, y1 = det["position"][0]
+            x2, y2 = det["position"][1]
+            cx = (x1 + x2) / 2
+            cy = (y1 + y2) / 2
+            banknotes.append({
+                "value": int(det["value"]),
+                "center": (cx, cy)
+            })
+
+        # Sort by vertical position (y), then horizontal (x)
+        banknotes.sort(key=lambda b: (b["center"][1], b["center"][0]))
+
+        # Calculate horizontal range to determine if vertically stacked
+        xs = [b["center"][0] for b in banknotes]
+        x_range = max(xs) - min(xs)
+
+        is_vertical_stack = x_range < 50  # Adjust threshold if needed
+
+        # Define vertical thresholds
+        ys = [b["center"][1] for b in banknotes]
+        y_min, y_max = min(ys), max(ys)
+        y_th1 = y_min + (y_max - y_min) / 3
+        y_th2 = y_min + 2 * (y_max - y_min) / 3
+
+        def get_vertical_name(cy):
+            if cy < y_th1:
+                return "top"
+            elif cy < y_th2:
+                return "middle"
+            else:
+                return "bottom"
+
+        def get_full_position_name(cx, cy):
+            vertical = get_vertical_name(cy)
+            # Define horizontal thresholds only if needed
+            x_min, x_max = min(xs), max(xs)
+            x_th1 = x_min + (x_max - x_min) / 3
+            x_th2 = x_min + 2 * (x_max - x_min) / 3
+            horizontal = (
+                "left" if cx < x_th1 else
+                "center" if cx < x_th2 else
+                "right"
+            )
+            if vertical == "middle" and horizontal == "center":
+                return "center"
+            return f"{vertical} {horizontal}".strip()
+        # Group banknotes by vertical zones
+        zone_map = {"top": [], "middle": [], "bottom": []}
+        for b in banknotes:
+            cy = b["center"][1]
+            zone = get_vertical_name(cy)
+            zone_map[zone].append(b)
+
+        # Build description with conditional horizontal detail
+        descriptions = []
+        for zone, items in zone_map.items():
+            if len(items) == 1:
+                # Only one item: just mention the vertical zone
+                val = items[0]['value']
+                descriptions.append(f"{val} Bolivianos on {zone}")
+            else:
+                # Multiple items: include full position (e.g., "top left", "top right")
+                # Sort again horizontally
+                x_min = min(b["center"][0] for b in items)
+                x_max = max(b["center"][0] for b in items)
+                x_th1 = x_min + (x_max - x_min) / 3
+                x_th2 = x_min + 2 * (x_max - x_min) / 3
+
+                for b in items:
+                    cx = b["center"][0]
+                    horizontal = (
+                        "left" if cx < x_th1 else
+                        "center" if cx < x_th2 else
+                        "right"
+                    )
+                    pos = f"{zone} {horizontal}".strip()
+                    descriptions.append(f"{b['value']} Bolivianos on {pos}")
+
+
+        return ", ".join(descriptions)
+
+
+
+
 
 class LLM:
   # genera un archivo de audio al cual podemos selecciona si queremos un audio en ingles o español
@@ -163,7 +262,7 @@ class LLM:
 #     return aud_path
   
   modelo=SETTINGS.llm
-  #seleccionamos con qué dispositivo queremos ejecutar nuestro LLM, en mac: mps, y en Pcs con windows o linux que tengan una grafica nevieda, cambiar mps por cuda
+  #seleccionamos con qué dispositivo queremos ejecutar nuestro LLM, en mac: mps, y en Pcs con windows o linux que tengan una grafica nvidia, cambiar mps por cuda
   device = "cuda" if torch.backends.cuda.is_built() else "cpu"
   print(device)
   tokenizer = AutoTokenizer.from_pretrained(modelo)#.to(device)
@@ -174,29 +273,29 @@ class LLM:
   ).to(device)
 
 
-  def spanish_tr(self,input_text):
+#   def spanish_tr(self,input_text):
 
 
-    input_text = f"""
-    Translate the following text From English to spanish:
-    "{input_text}"
-    Translation: """
+#     input_text = f"""
+#     Translate the following text From English to spanish:
+#     "{input_text}"
+#     Translation: """
 
 
-    print(self.device)
-    print(input_text)
-    input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cuda")#.to("cpu")#
-    #model.to("cpu")#comment this if in colab
-    outputs = self.model.generate(**input_ids, max_new_tokens=150,
-                            do_sample=True,
-                            temperature=0.5,  # Make output less random
-                            top_p=0.8,        # Use nucleus sampling
-                            top_k=60 )
-    ans=self.tokenizer.decode(outputs[0])
+#     print(self.device)
+#     print(input_text)
+#     input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cuda")#.to("cpu")#
+#     #model.to("cpu")#comment this if in colab
+#     outputs = self.model.generate(**input_ids, max_new_tokens=150,
+#                             do_sample=True,
+#                             temperature=0.5,  # Make output less random
+#                             top_p=0.8,        # Use nucleus sampling
+#                             top_k=60 )
+#     ans=self.tokenizer.decode(outputs[0])
 
-    ans=ans.split("Translation:")[1].strip()
-    ans=ans.split("\n")[0]
-    return ans
+#     ans=ans.split("Translation:")[1].strip()
+#     ans=ans.split("\n")[0]
+#     return ans
   
 
 
@@ -266,7 +365,7 @@ class LLM:
           "value": 10.0,
           "position": [[600, 50], [750, 200]]
       }
-  ]a
+  ]
   Response: At the center, there’s a 20 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. So, in total, you have 30 Bolivianos.
 
   Example 5:
@@ -367,6 +466,7 @@ class LLM:
   """
 
 
+
     input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cpu")#.to('cuda)
 
     outputs = self.model.generate(**input_ids, max_new_tokens=len(billetesData)*20,
@@ -380,10 +480,8 @@ class LLM:
 
     generated_text=re.split(r"<\|end_of_text\|>|Example|Question:", generated_text)[0].strip()
     print(generated_text)
-    if spanish:
-      generated_text=self.spanish_tr(generated_text)
+    # if spanish:
+    #   generated_text=self.spanish_tr(generated_text)
 
-    # if voice:
-    #   audio_path = self.gen_oudia(generated_text,spanish)
 
     return generated_text

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     revision: str = "local"
     model_moneyDet: str = "models/bolivian_money_detector_MK_I.pt"
     model_minibusSign:str= "models/minibus_sign_detector_MK_I.pt"
-    llm: str = 'google/gemma-2-2b-it'
+    llm: str = 'google/gemma-3-1b-it'
     # tts_english:str='tts_models/en/ljspeech/fast_pitch'
     # tts_spanish:str='tts_models/es/mai/tacotron2-DDC'
     log_level: str = "DEBUG"

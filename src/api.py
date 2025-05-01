@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, Query,UploadFile, File, HTTPException, status, Depends
 #from llama_index.core.agent import ReActAgent
 from src.config import get_settings
-from src.moneyDetector import BilleteDetector,LLM#, gen_oudia
+from src.moneyDetector import BilleteDetector#,LLM#, gen_oudia
 from src.minibusSignDetector import MiniBusSign
 from functools import cache
 from fastapi.responses import Response,JSONResponse,FileResponse
@@ -9,6 +9,7 @@ import io,os
 from PIL import Image, UnidentifiedImageError
 import numpy as np
 import cv2
+import ollama
 
 SETTINGS = get_settings()
 
@@ -20,10 +21,11 @@ def get_bill_detector() -> BilleteDetector:
     print("Creating model...")
     return BilleteDetector()
 
-@cache
-def get_llm()-> LLM:
-  print('getting LLM')
-  return LLM()
+# @cache
+# def get_llm()-> LLM:
+#   print('getting LLM')
+#   return LLM()
+
 
 @cache
 def get_minibusSignDetector()-> MiniBusSign:
@@ -34,7 +36,7 @@ def get_minibusSignDetector()-> MiniBusSign:
 def detect_and_summarize(
     file: UploadFile = File(...),
     detector: BilleteDetector = Depends(get_bill_detector),
-    llm: LLM = Depends(get_llm),
+    #llm: LLM = Depends(get_llm),
     spanish: bool = False
 ) -> JSONResponse:
     img_stream = io.BytesIO(file.file.read())
@@ -53,7 +55,7 @@ def detect_and_summarize(
         )
 
     total, img_det = detector.showImg(img_bgr)
-    generated_text = llm.generate_response(spanish=spanish)
+    generated_text = detector.describe_positions()
 
     return JSONResponse(content={"description": generated_text})
 
