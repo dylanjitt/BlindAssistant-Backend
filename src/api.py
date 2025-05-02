@@ -1,7 +1,7 @@
-from fastapi import FastAPI, Depends, Query,UploadFile, File, HTTPException, status, Depends
+from fastapi import FastAPI, Depends, Query,UploadFile, Form, File, HTTPException, status, Depends
 #from llama_index.core.agent import ReActAgent
 from src.config import get_settings
-from src.moneyDetector import BilleteDetector#,LLM#, gen_oudia
+from src.moneyDetector import BilleteDetector
 from src.minibusSignDetector import MiniBusSign
 from functools import cache
 from fastapi.responses import Response,JSONResponse,FileResponse
@@ -10,6 +10,7 @@ from PIL import Image, UnidentifiedImageError
 import numpy as np
 import cv2
 import ollama
+import base64
 
 SETTINGS = get_settings()
 
@@ -36,7 +37,6 @@ def get_minibusSignDetector()-> MiniBusSign:
 def detect_and_summarize(
     file: UploadFile = File(...),
     detector: BilleteDetector = Depends(get_bill_detector),
-    #llm: LLM = Depends(get_llm),
     spanish: bool = False
 ) -> JSONResponse:
     img_stream = io.BytesIO(file.file.read())
@@ -81,6 +81,27 @@ def detect_minibus_sign(
 
     result = sign_model.showMinibusSign(img_bgr,n=10)
     return JSONResponse(content=result)
+
+@app.post("/ollamaVision")
+async def ollama_vision_endpoint(
+    prompt: str = Form(...),
+    file: UploadFile = File(...)
+):
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are allowed.")
+
+    # Read and encode the image
+    img_bytes = await file.read()
+    img_base64 = base64.b64encode(img_bytes).decode("utf-8")
+
+    # Use ollama.generate for vision tasks
+    response = ollama.generate(
+        model=SETTINGS.llm,
+        prompt=prompt,
+        images=[img_base64]
+    )
+
+    return {"response": response['response']}
 
 if __name__ == "__main__":
     import uvicorn
