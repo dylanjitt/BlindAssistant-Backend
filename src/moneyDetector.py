@@ -145,6 +145,7 @@ class BilleteDetector:
 
         return n, img_orig
 
+
     def describe_positions(self, json_file=SETTINGS.logMoney_file):
         if not os.path.exists(json_file):
             return "Detection file not found."
@@ -158,7 +159,7 @@ class BilleteDetector:
         if len(detections) == 1:
             return f"{int(detections[0]['value'])} Bolivianos"
 
-        # Calculate center points
+        # Get center points of banknotes
         banknotes = []
         for det in detections:
             x1, y1 = det["position"][0]
@@ -170,318 +171,333 @@ class BilleteDetector:
                 "center": (cx, cy)
             })
 
-        # Sort by vertical position (y), then horizontal (x)
+        # Sort by vertical position first, then horizontal
         banknotes.sort(key=lambda b: (b["center"][1], b["center"][0]))
 
-        # Calculate horizontal range to determine if vertically stacked
+        # Determine if arrangement is primarily vertical or horizontal
         xs = [b["center"][0] for b in banknotes]
-        x_range = max(xs) - min(xs)
-
-        is_vertical_stack = x_range < 50  # Adjust threshold if needed
-
-        # Define vertical thresholds
         ys = [b["center"][1] for b in banknotes]
-        y_min, y_max = min(ys), max(ys)
-        y_th1 = y_min + (y_max - y_min) / 3
-        y_th2 = y_min + 2 * (y_max - y_min) / 3
+        
+        x_range = max(xs) - min(xs)
+        y_range = max(ys) - min(ys)
+        
+        # Check if arrangement forms a grid (multiple rows and columns)
+        is_grid = False
+        if len(banknotes) > 3:
+            # Count distinct x and y positions to detect grid pattern
+            distinct_x = len({round(x, -2) for x in xs})  # rounded to handle small variations
+            distinct_y = len({round(y, -2) for y in ys})
+            is_grid = distinct_x > 1 and distinct_y > 1
 
-        def get_vertical_name(cy):
-            if cy < y_th1:
-                return "top"
-            elif cy < y_th2:
-                return "middle"
-            else:
-                return "bottom"
-
-        def get_full_position_name(cx, cy):
-            vertical = get_vertical_name(cy)
-            # Define horizontal thresholds only if needed
-            x_min, x_max = min(xs), max(xs)
-            x_th1 = x_min + (x_max - x_min) / 3
-            x_th2 = x_min + 2 * (x_max - x_min) / 3
-            horizontal = (
-                "left" if cx < x_th1 else
-                "center" if cx < x_th2 else
-                "right"
-            )
-            if vertical == "middle" and horizontal == "center":
-                return "center"
-            return f"{vertical} {horizontal}".strip()
-        # Group banknotes by vertical zones
-        zone_map = {"top": [], "middle": [], "bottom": []}
-        for b in banknotes:
-            cy = b["center"][1]
-            zone = get_vertical_name(cy)
-            zone_map[zone].append(b)
-
-        # Build description with conditional horizontal detail
         descriptions = []
-        for zone, items in zone_map.items():
-            if len(items) == 1:
-                # Only one item: just mention the vertical zone
-                val = items[0]['value']
-                descriptions.append(f"{val} Bolivianos on {zone}")
-            else:
-                # Multiple items: include full position (e.g., "top left", "top right")
-                # Sort again horizontally
-                x_min = min(b["center"][0] for b in items)
-                x_max = max(b["center"][0] for b in items)
-                x_th1 = x_min + (x_max - x_min) / 3
-                x_th2 = x_min + 2 * (x_max - x_min) / 3
-
-                for b in items:
-                    cx = b["center"][0]
-                    horizontal = (
-                        "left" if cx < x_th1 else
-                        "center" if cx < x_th2 else
-                        "right"
-                    )
-                    pos = f"{zone} {horizontal}".strip()
-                    descriptions.append(f"{b['value']} Bolivianos on {pos}")
-
+        
+        if is_grid:
+            # Handle grid layout (multiple columns and rows)
+            # Group by columns first (based on x position)
+            x_sorted = sorted(banknotes, key=lambda b: b["center"][0])
+            
+            # Find natural column breaks
+            x_positions = [b["center"][0] for b in x_sorted]
+            x_diff = [x_positions[i+1] - x_positions[i] for i in range(len(x_positions)-1)]
+            avg_x_diff = sum(x_diff) / len(x_diff)
+            
+            columns = []
+            current_column = [x_sorted[0]]
+            
+            for i in range(1, len(x_sorted)):
+                if x_diff[i-1] > avg_x_diff * 1.5:  # Significant gap indicates new column
+                    columns.append(current_column)
+                    current_column = [x_sorted[i]]
+                else:
+                    current_column.append(x_sorted[i])
+            columns.append(current_column)
+            
+            # Describe each column's notes
+            for col_idx, column in enumerate(columns):
+                column.sort(key=lambda b: b["center"][1])  # Sort vertically within column
+                
+                # Determine column position (left/right or left/center/right)
+                col_positions = ["left", "right"] if len(columns) == 2 else ["left", "center", "right"]
+                col_pos = col_positions[col_idx] if col_idx < len(col_positions) else f"column {col_idx+1}"
+                
+                # Describe vertical positions in this column
+                if len(column) == 1:
+                    descriptions.append(f"{column[0]['value']} Bolivianos at {col_pos}")
+                else:
+                    vert_positions = ["top", "bottom"] if len(column) == 2 else ["top", "middle", "bottom"]
+                    for i, note in enumerate(column):
+                        if i < len(vert_positions):
+                            pos = f"{vert_positions[i]} {col_pos}"
+                        else:
+                            pos = f"position {i+1} in {col_pos}"
+                        descriptions.append(f"{note['value']} Bolivianos at {pos}")
+        else:
+            # Handle single column/row arrangements
+            if y_range > x_range:  # Primarily vertical arrangement
+                if len(banknotes) == 2:
+                    positions = ["top", "bottom"]
+                else:  # 3 or more vertically
+                    positions = ["top", "middle", "bottom"] if len(banknotes) == 3 else [f"position {i+1}" for i in range(len(banknotes))]
+                
+                for i, note in enumerate(banknotes):
+                    if i < len(positions):
+                        pos = positions[i]
+                    else:
+                        pos = f"position {i+1}"
+                    descriptions.append(f"{note['value']} Bolivianos at {pos}")
+            else:  # Primarily horizontal arrangement
+                if len(banknotes) == 2:
+                    positions = ["left", "right"]
+                else:  # 3 or more horizontally
+                    positions = ["left", "center", "right"] if len(banknotes) == 3 else [f"position {i+1}" for i in range(len(banknotes))]
+                
+                for i, note in enumerate(banknotes):
+                    if i < len(positions):
+                        pos = positions[i]
+                    else:
+                        pos = f"position {i+1}"
+                    descriptions.append(f"{note['value']} Bolivianos at {pos}")
 
         return ", ".join(descriptions)
 
 
 
+# class LLM:
+#   # genera un archivo de audio al cual podemos selecciona si queremos un audio en ingles o español
+# #   def gen_oudia(self,text, spanish=False):
+# #     aud_path = 'audio/audio.wav'
 
-
-class LLM:
-  # genera un archivo de audio al cual podemos selecciona si queremos un audio en ingles o español
-#   def gen_oudia(self,text, spanish=False):
-#     aud_path = 'audio/audio.wav'
-
-#     if spanish:
-#         # Usar TTS para español
-#         tts = TTS(SETTINGS.tts_spanish)
-#         tts.tts_to_file(text=text, file_path=aud_path)
-#     else:
-#         # Usar Coqui TTS para inglés
-#         tts = TTS(SETTINGS.tts_english)
-#         tts.tts_to_file(text=text, file_path=aud_path)
-#     return aud_path
+# #     if spanish:
+# #         # Usar TTS para español
+# #         tts = TTS(SETTINGS.tts_spanish)
+# #         tts.tts_to_file(text=text, file_path=aud_path)
+# #     else:
+# #         # Usar Coqui TTS para inglés
+# #         tts = TTS(SETTINGS.tts_english)
+# #         tts.tts_to_file(text=text, file_path=aud_path)
+# #     return aud_path
   
-  modelo=SETTINGS.llm
-  #seleccionamos con qué dispositivo queremos ejecutar nuestro LLM, en mac: mps, y en Pcs con windows o linux que tengan una grafica nvidia, cambiar mps por cuda
-  device = "cuda" if torch.backends.cuda.is_built() else "cpu"
-  print(device)
-  tokenizer = AutoTokenizer.from_pretrained(modelo)#.to(device)
-  model = AutoModelForCausalLM.from_pretrained(
-      modelo,
-      # device_map="auto",
-      # torch_dtype=torch.bfloat16,
-  ).to(device)
+#   modelo=SETTINGS.llm
+#   #seleccionamos con qué dispositivo queremos ejecutar nuestro LLM, en mac: mps, y en Pcs con windows o linux que tengan una grafica nvidia, cambiar mps por cuda
+#   device = "cuda" if torch.backends.cuda.is_built() else "cpu"
+#   print(device)
+#   tokenizer = AutoTokenizer.from_pretrained(modelo)#.to(device)
+#   model = AutoModelForCausalLM.from_pretrained(
+#       modelo,
+#       # device_map="auto",
+#       # torch_dtype=torch.bfloat16,
+#   ).to(device)
 
 
-#   def spanish_tr(self,input_text):
+# #   def spanish_tr(self,input_text):
 
 
-#     input_text = f"""
-#     Translate the following text From English to spanish:
-#     "{input_text}"
-#     Translation: """
+# #     input_text = f"""
+# #     Translate the following text From English to spanish:
+# #     "{input_text}"
+# #     Translation: """
 
 
-#     print(self.device)
-#     print(input_text)
-#     input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cuda")#.to("cpu")#
-#     #model.to("cpu")#comment this if in colab
-#     outputs = self.model.generate(**input_ids, max_new_tokens=150,
-#                             do_sample=True,
+# #     print(self.device)
+# #     print(input_text)
+# #     input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cuda")#.to("cpu")#
+# #     #model.to("cpu")#comment this if in colab
+# #     outputs = self.model.generate(**input_ids, max_new_tokens=150,
+# #                             do_sample=True,
+# #                             temperature=0.5,  # Make output less random
+# #                             top_p=0.8,        # Use nucleus sampling
+# #                             top_k=60 )
+# #     ans=self.tokenizer.decode(outputs[0])
+
+# #     ans=ans.split("Translation:")[1].strip()
+# #     ans=ans.split("\n")[0]
+# #     return ans
+  
+
+
+#   def generate_response(self,spanish):
+#     if os.path.exists(SETTINGS.logMoney_file) and os.path.getsize(SETTINGS.logMoney_file) > 0:
+#           with open(SETTINGS.logMoney_file, "r") as file:
+#               try:
+#                   billetesData = json.load(file)
+#                   print(len(billetesData))
+#                   billetesData_str = json.dumps(billetesData, indent=4) 
+#               except json.JSONDecodeError:
+#                   print(json.JSONDecodeError)
+#     input_text = """
+#   Given a JSON list of banknotes with their values and bounding box coordinates, analyze the position coordinates of each banknote to determine its approximate location (e.g., "top left," "bottom right," "center"), relative to the other banknotes. After describing the locations of all banknotes, calculate the total sum and include it in the final sentence in the format: "So, in total, you have (total) Bolivianos." Use this format for each entry and make the description clear and concise. Here are a few examples to guide the model:
+
+#   Example 1:
+  
+#   [
+#     {
+#         "value": 100.0,
+#         "position": [[300, 300], [600, 600]]
+#     }
+#   ]
+
+#   Response: The only banknote detected in the image is a 100 Bolivianos.
+
+#   Example 2:
+
+#   [
+#       {
+#           "value": 20.0,
+#           "position": [[173, 219], [601, 426]]
+#       },
+#       {
+#           "value": 20.0,
+#           "position": [[613, 221], [1025, 428]]
+#       },
+#       {
+#           "value": 10.0,
+#           "position": [[80, 100], [300, 300]]
+#       }
+#   ]
+#   Response: At the center left, there's a 20 Bolivianos banknote. Toward the center right, you’ll find another 20 Bolivianos banknote. In the top left, there’s a 10 Bolivianos banknote. So, in total, you have 50 Bolivianos.
+
+#   Example 3:
+
+#   [
+#       {
+#           "value": 100.0,
+#           "position": [[150, 450], [600, 800]]
+#       },
+#       {
+#           "value": 50.0,
+#           "position": [[650, 450], [1000, 800]]
+#       }
+#   ]
+#   Response: On the left, there’s a 100 Bolivianos banknote. Toward the right, you’ll find a 50 Bolivianos banknote. So, in total, you have 150 Bolivianos.
+
+#   Example 4:
+
+#   [
+#       {
+#           "value": 20.0,
+#           "position": [[300, 300], [450, 400]]
+#       },
+#       {
+#           "value": 10.0,
+#           "position": [[600, 50], [750, 200]]
+#       }
+#   ]
+#   Response: At the center, there’s a 20 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. So, in total, you have 30 Bolivianos.
+
+#   Example 5:
+
+#   [
+#       {
+#           "value": 50.0,
+#           "position": [[169, 433], [610, 665]]
+#       },
+#       {
+#           "value": 10.0,
+#           "position": [[600, 11], [1005, 221]]
+#       },
+#       {
+#           "value": 10.0,
+#           "position": [[176, 0], [604, 221]]
+#       },
+#       {
+#           "value": 50.0,
+#           "position": [[636, 452], [1046, 677]]
+#       },
+#       {
+#           "value": 20.0,
+#           "position": [[173, 219], [601, 426]]
+#       },
+#       {
+#           "value": 20.0,
+#           "position": [[613, 221], [1025, 428]]
+#       }
+#   ]
+#   Response: On the bottom left, there’s a 50 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. In the top left, there’s another 10 Bolivianos banknote. At the center right, there’s a 50 Bolivianos banknote. Toward the center left, there’s a 20 Bolivianos banknote. Finally, at the center right, you’ll find another 20 Bolivianos banknote. So, in total, you have 160 Bolivianos.
+
+#   Example 6: 
+
+#   [
+#     {
+#         "value": 5.0,
+#         "position": [[50, 50], [200, 150]]
+#     },
+#     {
+#         "value": 10.0,
+#         "position": [[400, 100], [600, 300]]
+#     },
+#     {
+#         "value": 50.0,
+#         "position": [[150, 500], [600, 800]]
+#     }
+#   ]
+
+#   Response: In the top left, there's a 5 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. At the bottom center, there’s a 50 Bolivianos banknote. So, in total, you have 65 Bolivianos.
+
+#   Example 7: 
+
+#   [
+#     {
+#         "value": 20.0,
+#         "position": [[200, 600], [500, 900]]
+#     },
+#     {
+#         "value": 10.0,
+#         "position": [[650, 200], [850, 400]]
+#     },
+#     {
+#         "value": 100.0,
+#         "position": [[300, 100], [800, 300]]
+#     },
+#     {
+#         "value": 5.0,
+#         "position": [[50, 50], [200, 100]]
+#     }
+# ]
+
+#   Response: At the bottom center, there's a 20 Bolivianos banknote. Toward the center right, you’ll find a 10 Bolivianos banknote. In the top center, there’s a 100 Bolivianos banknote. Finally, at the very top left, there’s a 5 Bolivianos banknote. So, in total, you have 135 Bolivianos.
+  
+#   Example 8:
+
+#   [
+#     {
+#         "value": 10.0,
+#         "position": [[150, 250], [400, 450]]
+#     },
+#     {
+#         "value": 20.0,
+#         "position": [[450, 250], [700, 450]]
+#     },
+#     {
+#         "value": 50.0,
+#         "position": [[200, 500], [600, 800]]
+#     }
+#   ]
+
+#   Response: On the center left, there’s a 10 Bolivianos banknote. Toward the center right, there’s a 20 Bolivianos banknote. At the bottom center, there’s a 50 Bolivianos banknote. So, in total, you have 80 Bolivianos.
+
+
+#   Example 9:"""+billetesData_str+"""
+
+#   Response:
+#   """
+
+
+
+#     input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cpu")#.to('cuda)
+
+#     outputs = self.model.generate(**input_ids, max_new_tokens=len(billetesData)*20,
 #                             temperature=0.5,  # Make output less random
 #                             top_p=0.8,        # Use nucleus sampling
 #                             top_k=60 )
 #     ans=self.tokenizer.decode(outputs[0])
+#     print(ans)
+#     if "Response:" in ans:
+#       generated_text = ans.split("Response:")[-1].strip()
 
-#     ans=ans.split("Translation:")[1].strip()
-#     ans=ans.split("\n")[0]
-#     return ans
-  
-
-
-  def generate_response(self,spanish):
-    if os.path.exists(SETTINGS.logMoney_file) and os.path.getsize(SETTINGS.logMoney_file) > 0:
-          with open(SETTINGS.logMoney_file, "r") as file:
-              try:
-                  billetesData = json.load(file)
-                  print(len(billetesData))
-                  billetesData_str = json.dumps(billetesData, indent=4) 
-              except json.JSONDecodeError:
-                  print(json.JSONDecodeError)
-    input_text = """
-  Given a JSON list of banknotes with their values and bounding box coordinates, analyze the position coordinates of each banknote to determine its approximate location (e.g., "top left," "bottom right," "center"), relative to the other banknotes. After describing the locations of all banknotes, calculate the total sum and include it in the final sentence in the format: "So, in total, you have (total) Bolivianos." Use this format for each entry and make the description clear and concise. Here are a few examples to guide the model:
-
-  Example 1:
-  
-  [
-    {
-        "value": 100.0,
-        "position": [[300, 300], [600, 600]]
-    }
-  ]
-
-  Response: The only banknote detected in the image is a 100 Bolivianos.
-
-  Example 2:
-
-  [
-      {
-          "value": 20.0,
-          "position": [[173, 219], [601, 426]]
-      },
-      {
-          "value": 20.0,
-          "position": [[613, 221], [1025, 428]]
-      },
-      {
-          "value": 10.0,
-          "position": [[80, 100], [300, 300]]
-      }
-  ]
-  Response: At the center left, there's a 20 Bolivianos banknote. Toward the center right, you’ll find another 20 Bolivianos banknote. In the top left, there’s a 10 Bolivianos banknote. So, in total, you have 50 Bolivianos.
-
-  Example 3:
-
-  [
-      {
-          "value": 100.0,
-          "position": [[150, 450], [600, 800]]
-      },
-      {
-          "value": 50.0,
-          "position": [[650, 450], [1000, 800]]
-      }
-  ]
-  Response: On the left, there’s a 100 Bolivianos banknote. Toward the right, you’ll find a 50 Bolivianos banknote. So, in total, you have 150 Bolivianos.
-
-  Example 4:
-
-  [
-      {
-          "value": 20.0,
-          "position": [[300, 300], [450, 400]]
-      },
-      {
-          "value": 10.0,
-          "position": [[600, 50], [750, 200]]
-      }
-  ]
-  Response: At the center, there’s a 20 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. So, in total, you have 30 Bolivianos.
-
-  Example 5:
-
-  [
-      {
-          "value": 50.0,
-          "position": [[169, 433], [610, 665]]
-      },
-      {
-          "value": 10.0,
-          "position": [[600, 11], [1005, 221]]
-      },
-      {
-          "value": 10.0,
-          "position": [[176, 0], [604, 221]]
-      },
-      {
-          "value": 50.0,
-          "position": [[636, 452], [1046, 677]]
-      },
-      {
-          "value": 20.0,
-          "position": [[173, 219], [601, 426]]
-      },
-      {
-          "value": 20.0,
-          "position": [[613, 221], [1025, 428]]
-      }
-  ]
-  Response: On the bottom left, there’s a 50 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. In the top left, there’s another 10 Bolivianos banknote. At the center right, there’s a 50 Bolivianos banknote. Toward the center left, there’s a 20 Bolivianos banknote. Finally, at the center right, you’ll find another 20 Bolivianos banknote. So, in total, you have 160 Bolivianos.
-
-  Example 6: 
-
-  [
-    {
-        "value": 5.0,
-        "position": [[50, 50], [200, 150]]
-    },
-    {
-        "value": 10.0,
-        "position": [[400, 100], [600, 300]]
-    },
-    {
-        "value": 50.0,
-        "position": [[150, 500], [600, 800]]
-    }
-  ]
-
-  Response: In the top left, there's a 5 Bolivianos banknote. Toward the top right, you’ll find a 10 Bolivianos banknote. At the bottom center, there’s a 50 Bolivianos banknote. So, in total, you have 65 Bolivianos.
-
-  Example 7: 
-
-  [
-    {
-        "value": 20.0,
-        "position": [[200, 600], [500, 900]]
-    },
-    {
-        "value": 10.0,
-        "position": [[650, 200], [850, 400]]
-    },
-    {
-        "value": 100.0,
-        "position": [[300, 100], [800, 300]]
-    },
-    {
-        "value": 5.0,
-        "position": [[50, 50], [200, 100]]
-    }
-]
-
-  Response: At the bottom center, there's a 20 Bolivianos banknote. Toward the center right, you’ll find a 10 Bolivianos banknote. In the top center, there’s a 100 Bolivianos banknote. Finally, at the very top left, there’s a 5 Bolivianos banknote. So, in total, you have 135 Bolivianos.
-  
-  Example 8:
-
-  [
-    {
-        "value": 10.0,
-        "position": [[150, 250], [400, 450]]
-    },
-    {
-        "value": 20.0,
-        "position": [[450, 250], [700, 450]]
-    },
-    {
-        "value": 50.0,
-        "position": [[200, 500], [600, 800]]
-    }
-  ]
-
-  Response: On the center left, there’s a 10 Bolivianos banknote. Toward the center right, there’s a 20 Bolivianos banknote. At the bottom center, there’s a 50 Bolivianos banknote. So, in total, you have 80 Bolivianos.
+#     generated_text=re.split(r"<\|end_of_text\|>|Example|Question:", generated_text)[0].strip()
+#     print(generated_text)
+#     # if spanish:
+#     #   generated_text=self.spanish_tr(generated_text)
 
 
-  Example 9:"""+billetesData_str+"""
-
-  Response:
-  """
-
-
-
-    input_ids = self.tokenizer(input_text, return_tensors="pt").to("cuda")#.to("cpu")#.to('cuda)
-
-    outputs = self.model.generate(**input_ids, max_new_tokens=len(billetesData)*20,
-                            temperature=0.5,  # Make output less random
-                            top_p=0.8,        # Use nucleus sampling
-                            top_k=60 )
-    ans=self.tokenizer.decode(outputs[0])
-    print(ans)
-    if "Response:" in ans:
-      generated_text = ans.split("Response:")[-1].strip()
-
-    generated_text=re.split(r"<\|end_of_text\|>|Example|Question:", generated_text)[0].strip()
-    print(generated_text)
-    # if spanish:
-    #   generated_text=self.spanish_tr(generated_text)
-
-
-    return generated_text
+#     return generated_text
