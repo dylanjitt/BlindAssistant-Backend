@@ -3,6 +3,7 @@ from fastapi import FastAPI, Depends, Query,UploadFile, Form, File, HTTPExceptio
 from src.config import get_settings
 from src.moneyDetector import BilleteDetector
 from src.minibusSignDetector import MiniBusSign
+from src.llm import LLM
 from functools import cache
 from fastapi.responses import Response,JSONResponse,FileResponse
 import io,os
@@ -100,6 +101,8 @@ async def ollama_vision_endpoint(
         prompt=prompt,
         images=[img_base64]
     )
+
+    # response = LLM.generateResponse(prompt,img_base64)
 
     return {"response": response['response']}
 
