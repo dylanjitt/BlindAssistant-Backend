@@ -124,4 +124,15 @@ class MiniBusSign:
         plt.title("Minibus Signs Detected")
         plt.show()
 
-        return letreros_detectados
+        #eliminar cache y reducir consumo acumulativo VRAM cuda
+        self.clear_gpu_cache()
+        print(letreros_detectados)
+        
+        return ", ".join([d['text'] for d in letreros_detectados if d['text']])
+    
+    def clear_gpu_cache(self):
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("GPU cache cleared.")
+        else:
+            print("CUDA not available, nothing to clear.")

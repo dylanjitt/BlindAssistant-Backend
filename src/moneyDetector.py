@@ -142,8 +142,17 @@ class BilleteDetector:
         # Guardar las detecciones en un archivo JSON
         with open(output_json, 'w') as f:
             json.dump(detecciones, f, indent=4)
+        
+        self.clear_gpu_cache()
 
         return n, img_orig
+
+    def clear_gpu_cache(self):
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("GPU cache cleared.")
+        else:
+            print("CUDA not available, nothing to clear.")
 
 
     def describe_positions(self, json_file=SETTINGS.logMoney_file):

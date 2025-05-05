@@ -81,11 +81,12 @@ def detect_minibus_sign(
         )
 
     result = sign_model.showMinibusSign(img_bgr,n=10)
-    return JSONResponse(content=result)
+    print(result)
+    return JSONResponse(content={"description":result})
 
 @app.post("/ollamaVision")
 async def ollama_vision_endpoint(
-    prompt: str = Form(...),
+    prompt: str = "Describe the following image in detail, the elements on it like if you were to tell a blind person, If the image has a person, describe looks, hair, skin tone and clothing, if it is an objects (or various objects) describe them, what they are or where are those from, their colors, and if on the image you find any form of text, read it in a separate paragraph, look for text specifically in spanish, the response should be straigntforward and IN SPANISH, en español",
     file: UploadFile = File(...)
 ):
     if not file.content_type.startswith("image/"):
@@ -104,7 +105,7 @@ async def ollama_vision_endpoint(
 
     # response = LLM.generateResponse(prompt,img_base64)
 
-    return {"response": response['response']}
+    return {"description": response['response']}
 
 if __name__ == "__main__":
     import uvicorn
