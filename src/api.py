@@ -56,7 +56,7 @@ def detect_and_summarize(
         )
 
     total, img_det = detector.showImg(img_bgr)
-    generated_text = detector.describe_positions()
+    generated_text = detector.describe_positions(spanish)
 
     return JSONResponse(content={"description": generated_text})
 
@@ -103,7 +103,6 @@ async def ollama_vision_endpoint(
         images=[img_base64]
     )
 
-    # response = LLM.generateResponse(prompt,img_base64)
 
     return {"description": response['response']}
 

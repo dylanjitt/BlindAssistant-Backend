@@ -153,20 +153,49 @@ class BilleteDetector:
             print("GPU cache cleared.")
         else:
             print("CUDA not available, nothing to clear.")
+    
+    def describe_positions(self, spanish, json_file=SETTINGS.logMoney_file):
+        # Language-dependent labels
+        if spanish:
+            no_banknotes = "Ningún billete fue detectado, intente otra vez"
+            not_found_msg = "Archivo de detección no encontrado."
+            unit = "Bolivianos"
+            pos_labels = {
+                "top": "arriba",
+                "middle": "al medio",
+                "bottom": "abajo",
+                "left": "a la izquierda",
+                "center": "al centro",
+                "right": "a la derecha",
+                "at": "",
+                "position": "posición"
+            }
+        else:
+            no_banknotes = "No banknotes were detected, try again."
+            not_found_msg = "Detection file not found."
+            unit = "Bolivianos"
+            pos_labels = {
+                "top": "top",
+                "middle": "middle",
+                "bottom": "bottom",
+                "left": "left",
+                "center": "center",
+                "right": "right",
+                "at": "at",
+                "position": "position"
+            }
 
-
-    def describe_positions(self, json_file=SETTINGS.logMoney_file):
         if not os.path.exists(json_file):
-            return "Detection file not found."
+            return not_found_msg
 
         with open(json_file, 'r') as f:
             detections = json.load(f)
 
         if not detections:
-            return "No banknotes were detected, try again."
+            return no_banknotes
 
         if len(detections) == 1:
-            return f"{int(detections[0]['value'])} Bolivianos"
+            return f"{int(detections[0]['value'])} {unit}"
 
         # Get center points of banknotes
         banknotes = []
@@ -180,92 +209,209 @@ class BilleteDetector:
                 "center": (cx, cy)
             })
 
-        # Sort by vertical position first, then horizontal
+        # Sort by vertical then horizontal
         banknotes.sort(key=lambda b: (b["center"][1], b["center"][0]))
 
-        # Determine if arrangement is primarily vertical or horizontal
+        # Determine layout
         xs = [b["center"][0] for b in banknotes]
         ys = [b["center"][1] for b in banknotes]
-        
         x_range = max(xs) - min(xs)
         y_range = max(ys) - min(ys)
-        
-        # Check if arrangement forms a grid (multiple rows and columns)
+
         is_grid = False
         if len(banknotes) > 3:
-            # Count distinct x and y positions to detect grid pattern
-            distinct_x = len({round(x, -2) for x in xs})  # rounded to handle small variations
+            distinct_x = len({round(x, -2) for x in xs})
             distinct_y = len({round(y, -2) for y in ys})
             is_grid = distinct_x > 1 and distinct_y > 1
 
         descriptions = []
-        
+
         if is_grid:
-            # Handle grid layout (multiple columns and rows)
-            # Group by columns first (based on x position)
             x_sorted = sorted(banknotes, key=lambda b: b["center"][0])
-            
-            # Find natural column breaks
             x_positions = [b["center"][0] for b in x_sorted]
             x_diff = [x_positions[i+1] - x_positions[i] for i in range(len(x_positions)-1)]
             avg_x_diff = sum(x_diff) / len(x_diff)
-            
+
             columns = []
             current_column = [x_sorted[0]]
-            
+
             for i in range(1, len(x_sorted)):
-                if x_diff[i-1] > avg_x_diff * 1.5:  # Significant gap indicates new column
+                if x_diff[i-1] > avg_x_diff * 1.5:
                     columns.append(current_column)
                     current_column = [x_sorted[i]]
                 else:
                     current_column.append(x_sorted[i])
             columns.append(current_column)
-            
-            # Describe each column's notes
+
             for col_idx, column in enumerate(columns):
-                column.sort(key=lambda b: b["center"][1])  # Sort vertically within column
-                
-                # Determine column position (left/right or left/center/right)
-                col_positions = ["left", "right"] if len(columns) == 2 else ["left", "center", "right"]
-                col_pos = col_positions[col_idx] if col_idx < len(col_positions) else f"column {col_idx+1}"
-                
-                # Describe vertical positions in this column
-                if len(column) == 1:
-                    descriptions.append(f"{column[0]['value']} Bolivianos at {col_pos}")
+                column.sort(key=lambda b: b["center"][1])
+
+                if len(columns) == 2:
+                    col_positions = [pos_labels["left"], pos_labels["right"]]
                 else:
-                    vert_positions = ["top", "bottom"] if len(column) == 2 else ["top", "middle", "bottom"]
+                    col_positions = [pos_labels["left"], pos_labels["center"], pos_labels["right"]]
+
+                col_pos = col_positions[col_idx] if col_idx < len(col_positions) else f"{pos_labels['position']} {col_idx+1}"
+
+                if len(column) == 1:
+                    descriptions.append(f"{column[0]['value']} {unit} {pos_labels['at']} {col_pos}")
+                else:
+                    if len(column) == 2:
+                        vert_positions = [pos_labels["top"], pos_labels["bottom"]]
+                    elif len(column) == 3:
+                        vert_positions = [pos_labels["top"], pos_labels["middle"], pos_labels["bottom"]]
+                    else:
+                        vert_positions = [f"{pos_labels['position']} {i+1}" for i in range(len(column))]
+
                     for i, note in enumerate(column):
                         if i < len(vert_positions):
                             pos = f"{vert_positions[i]} {col_pos}"
                         else:
-                            pos = f"position {i+1} in {col_pos}"
-                        descriptions.append(f"{note['value']} Bolivianos at {pos}")
+                            pos = f"{pos_labels['position']} {i+1} {col_pos}"
+                        descriptions.append(f"{note['value']} {unit} {pos_labels['at']} {pos}")
+
         else:
-            # Handle single column/row arrangements
-            if y_range > x_range:  # Primarily vertical arrangement
+            if y_range > x_range:
                 if len(banknotes) == 2:
-                    positions = ["top", "bottom"]
-                else:  # 3 or more vertically
-                    positions = ["top", "middle", "bottom"] if len(banknotes) == 3 else [f"position {i+1}" for i in range(len(banknotes))]
-                
+                    positions = [pos_labels["top"], pos_labels["bottom"]]
+                elif len(banknotes) == 3:
+                    positions = [pos_labels["top"], pos_labels["middle"], pos_labels["bottom"]]
+                else:
+                    positions = [f"{pos_labels['position']} {i+1}" for i in range(len(banknotes))]
+
                 for i, note in enumerate(banknotes):
-                    if i < len(positions):
-                        pos = positions[i]
-                    else:
-                        pos = f"position {i+1}"
-                    descriptions.append(f"{note['value']} Bolivianos at {pos}")
-            else:  # Primarily horizontal arrangement
+                    pos = positions[i] if i < len(positions) else f"{pos_labels['position']} {i+1}"
+                    descriptions.append(f"{note['value']} {unit} {pos_labels['at']} {pos}")
+
+            else:
                 if len(banknotes) == 2:
-                    positions = ["left", "right"]
-                else:  # 3 or more horizontally
-                    positions = ["left", "center", "right"] if len(banknotes) == 3 else [f"position {i+1}" for i in range(len(banknotes))]
-                
+                    positions = [pos_labels["left"], pos_labels["right"]]
+                elif len(banknotes) == 3:
+                    positions = [pos_labels["left"], pos_labels["center"], pos_labels["right"]]
+                else:
+                    positions = [f"{pos_labels['position']} {i+1}" for i in range(len(banknotes))]
+
                 for i, note in enumerate(banknotes):
-                    if i < len(positions):
-                        pos = positions[i]
-                    else:
-                        pos = f"position {i+1}"
-                    descriptions.append(f"{note['value']} Bolivianos at {pos}")
+                    pos = positions[i] if i < len(positions) else f"{pos_labels['position']} {i+1}"
+                    descriptions.append(f"{note['value']} {unit} {pos_labels['at']} {pos}")
 
         return ", ".join(descriptions)
 
+
+
+    # def describe_positions(self, spanish, json_file=SETTINGS.logMoney_file):
+
+    #     no_banknotes=spanish?'Ningun billete fue detectado, intente otra vez':"No banknotes were detected, try again."
+    #     if not os.path.exists(json_file):
+    #         return "Detection file not found."
+
+    #     with open(json_file, 'r') as f:
+    #         detections = json.load(f)
+
+    #     if not detections:
+    #         return "No banknotes were detected, try again."
+
+    #     if len(detections) == 1:
+    #         return f"{int(detections[0]['value'])} Bolivianos"
+
+    #     # Get center points of banknotes
+    #     banknotes = []
+    #     for det in detections:
+    #         x1, y1 = det["position"][0]
+    #         x2, y2 = det["position"][1]
+    #         cx = (x1 + x2) / 2
+    #         cy = (y1 + y2) / 2
+    #         banknotes.append({
+    #             "value": int(det["value"]),
+    #             "center": (cx, cy)
+    #         })
+
+    #     # Sort by vertical position first, then horizontal
+    #     banknotes.sort(key=lambda b: (b["center"][1], b["center"][0]))
+
+    #     # Determine if arrangement is primarily vertical or horizontal
+    #     xs = [b["center"][0] for b in banknotes]
+    #     ys = [b["center"][1] for b in banknotes]
+        
+    #     x_range = max(xs) - min(xs)
+    #     y_range = max(ys) - min(ys)
+        
+    #     # Check if arrangement forms a grid (multiple rows and columns)
+    #     is_grid = False
+    #     if len(banknotes) > 3:
+    #         # Count distinct x and y positions to detect grid pattern
+    #         distinct_x = len({round(x, -2) for x in xs})  # rounded to handle small variations
+    #         distinct_y = len({round(y, -2) for y in ys})
+    #         is_grid = distinct_x > 1 and distinct_y > 1
+
+    #     descriptions = []
+        
+    #     if is_grid:
+    #         # Handle grid layout (multiple columns and rows)
+    #         # Group by columns first (based on x position)
+    #         x_sorted = sorted(banknotes, key=lambda b: b["center"][0])
+            
+    #         # Find natural column breaks
+    #         x_positions = [b["center"][0] for b in x_sorted]
+    #         x_diff = [x_positions[i+1] - x_positions[i] for i in range(len(x_positions)-1)]
+    #         avg_x_diff = sum(x_diff) / len(x_diff)
+            
+    #         columns = []
+    #         current_column = [x_sorted[0]]
+            
+    #         for i in range(1, len(x_sorted)):
+    #             if x_diff[i-1] > avg_x_diff * 1.5:  # Significant gap indicates new column
+    #                 columns.append(current_column)
+    #                 current_column = [x_sorted[i]]
+    #             else:
+    #                 current_column.append(x_sorted[i])
+    #         columns.append(current_column)
+            
+    #         # Describe each column's notes
+    #         for col_idx, column in enumerate(columns):
+    #             column.sort(key=lambda b: b["center"][1])  # Sort vertically within column
+                
+    #             # Determine column position (left/right or left/center/right)
+    #             col_positions = ["left", "right"] if len(columns) == 2 else ["left", "center", "right"]
+    #             col_pos = col_positions[col_idx] if col_idx < len(col_positions) else f"column {col_idx+1}"
+                
+    #             # Describe vertical positions in this column
+    #             if len(column) == 1:
+    #                 descriptions.append(f"{column[0]['value']} Bolivianos at {col_pos}")
+    #             else:
+    #                 vert_positions = ["top", "bottom"] if len(column) == 2 else ["top", "middle", "bottom"]
+    #                 for i, note in enumerate(column):
+    #                     if i < len(vert_positions):
+    #                         pos = f"{vert_positions[i]} {col_pos}"
+    #                     else:
+    #                         pos = f"position {i+1} in {col_pos}"
+    #                     descriptions.append(f"{note['value']} Bolivianos at {pos}")
+    #     else:
+    #         # Handle single column/row arrangements
+    #         if y_range > x_range:  # Primarily vertical arrangement
+    #             if len(banknotes) == 2:
+    #                 positions = ["top", "bottom"]
+    #             else:  # 3 or more vertically
+    #                 positions = ["top", "middle", "bottom"] if len(banknotes) == 3 else [f"position {i+1}" for i in range(len(banknotes))]
+                
+    #             for i, note in enumerate(banknotes):
+    #                 if i < len(positions):
+    #                     pos = positions[i]
+    #                 else:
+    #                     pos = f"position {i+1}"
+    #                 descriptions.append(f"{note['value']} Bolivianos at {pos}")
+    #         else:  # Primarily horizontal arrangement
+    #             if len(banknotes) == 2:
+    #                 positions = ["left", "right"]
+    #             else:  # 3 or more horizontally
+    #                 positions = ["left", "center", "right"] if len(banknotes) == 3 else [f"position {i+1}" for i in range(len(banknotes))]
+                
+    #             for i, note in enumerate(banknotes):
+    #                 if i < len(positions):
+    #                     pos = positions[i]
+    #                 else:
+    #                     pos = f"position {i+1}"
+    #                 descriptions.append(f"{note['value']} Bolivianos at {pos}")
+
+    #     return ", ".join(descriptions)
+    
