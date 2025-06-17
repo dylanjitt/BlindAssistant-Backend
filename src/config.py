@@ -13,9 +13,10 @@ class Settings(BaseSettings):
     model_moneyDet: str = "models/bolivian_money_detector_MK_I.pt"
     model_minibusSign:str= "models/minibus_sign_detector_MK_I.pt"
     #llm: str = 'llava'
-    #llm: str = 'llama3.2-vision'#OPTION 2
+    #llm: str = 'llama3.2-vision'#OPTION 3
     #llm: str = 'gemma3:4b'
-    llm: str = 'gemma3:12b' #OPTION 1
+    llm: str = 'gemma3:12b' #OPTION 2
+    #llm: str = 'qwen2.5vl:7b'#OPTION 1
     
     log_level: str = "DEBUG"
 

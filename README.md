@@ -1,7 +1,7 @@
 you need Python 3
 and huggingface account with acces to the following models:
--asdfasdf
--asdfasdfasdf
+-ollama
+-ngrok
 
 steps
 1. git clone
