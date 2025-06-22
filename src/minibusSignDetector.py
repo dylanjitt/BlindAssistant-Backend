@@ -45,17 +45,61 @@ def remove_duplicates(boxes, confidences):
 
     return unique_boxes
 
-class MiniBusSign:
-    def showMinibusSign(self,img, n=None, output_json=SETTINGS.logSign_file):
-        img_orig = cv2.imread(img) if isinstance(img, str) else img.copy()
-        results = Imgmodel(img_orig)  # Your minibus sign detection model
+from difflib import SequenceMatcher
 
+KNOWN_TERMS = [
+    "OBRAJES", "CALACOTO", "SAN MIGUEL", "LOS PINOS", "ACHUMANI","STADIUM","PZA TRIANGULAR"
+    "IRPAVI", "LAS LOMAS", "COMPLEJO","LAS LOMAS","ROSALES", "ARCE", "PRADO", "PEREZ",
+    "MIRAFLORES", "V FATIMA", "H OBRERO", "MONTES", "PANDO","AV BUSCH","CEMENTERIO",
+    "COTA COTA", "CHASQUIPAMPA", "MUNAYPATA", "CEJA", "LA FLORIDA","VITA","UMSA","U.M.S.A"
+    "MALLASA", "MALLASILLA", "ACHOCALLA", "EST MAYOR","SAN PEDRO","PEDRO","OBELISCO",
+    "COLOMBIA","PEREZ V","RODRIGUEZ","TELEFERICO","PEDREGAL","ALMENDROS","MEGA CENTER","IRPAVI 2","BAJO IRPAVI"
+    "BAJO","ALTO","P ESTUDIANTE","EST CENTRAL","TERMINAL"
+    "SEGUENCOMA","FONDO","CALLE 16","6 AGOSTO","6 DE AGOSTO"
+]
+
+def get_best_match(word: str, candidates=KNOWN_TERMS) -> str:
+    """
+    Compare a word against a list of candidate terms using SequenceMatcher
+    and return the most similar known term.
+    """
+    word_up = word.upper()
+    best_term = None
+    best_score = 0.0
+    for term in candidates:
+        score = SequenceMatcher(None, word_up, term).ratio()
+        if score > best_score:
+            best_score = score
+            best_term = term
+    return best_term if best_term is not None else word
+
+
+def readerImg(img):
+    reader = easyocr.Reader(['es'], gpu=True)
+    detected = reader.readtext(img, detail=0)
+
+    # 2. Match each word to the known list
+    matched = []
+    for word in detected:
+        match = get_best_match(word)
+        matched.append(match)
+    #return matched
+    return " ".join(matched).strip()
+
+class MiniBusSign:
+    
+    #NEW FUNCTION
+    def showMinibusSign(self,img, offset=10):
+        img_orig = cv2.imread(img) if isinstance(img, str) else img.copy()
+        img_with_boxes = img_orig.copy()
+        results = Imgmodel(img_orig)
         boxes = []
         confidences = []
         labels = []
-        letreros_detectados = []
 
-        # Step 1: Collect all detected boxes
+        if len(results)==0:
+            return "no se encontraron letreros, intente nuevamente"
+        # Gather all detection results for "letrero"
         for result in results:
             for bbox in result.boxes:
                 conf = bbox.conf[0].item()
@@ -65,70 +109,34 @@ class MiniBusSign:
                     continue
 
                 x1, y1, x2, y2 = map(int, bbox.xyxy[0])
-                boxes.append((x1-n, y1-n, x2+n, y2+n))
+                boxes.append((x1, y1, x2, y2))
                 confidences.append(conf)
-                labels.append(label)
 
-        # Step 2: Remove duplicates
+        # Remove duplicates based on distance threshold
         unique_boxes = remove_duplicates(boxes, confidences)
 
-        # Step 3: OCR using EasyOCR on each sign
-        individual_text_found = False
+        # Draw bounding boxes on a copy of the original image
+        for idx, (x1, y1, x2, y2) in enumerate(unique_boxes):
+            cv2.rectangle(img_with_boxes, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(img_with_boxes, f"#{idx + 1}", (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
+        # Process and display each cropped/resized sign
         for idx, (x1, y1, x2, y2) in enumerate(unique_boxes):
             cropped_sign = img_orig[y1:y2, x1:x2]
-            ocr_result = reader.readtext(cropped_sign, detail=0)
-            text = " ".join(ocr_result).strip()
+            target_w, target_h = x2 - x1, y2 - y1
+            resized_sign=cropped_sign
 
-            if text:
-                individual_text_found = True
-
-            letrero_info = {
-                "box": [x1, y1, x2, y2],
-                "text": text
-            }
-            letreros_detectados.append(letrero_info)
-
-            # Draw box and text
-            cv2.rectangle(img_orig, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(img_orig, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-
-        # Step 4: Group OCR if no individual detections worked
-        if not individual_text_found and unique_boxes:
-            x1_all = min([b[0] for b in unique_boxes])
-            y1_all = min([b[1] for b in unique_boxes])
-            x2_all = max([b[2] for b in unique_boxes])
-            y2_all = max([b[3] for b in unique_boxes])
-
-            full_area_crop = img_orig[y1_all:y2_all, x1_all:x2_all]
-            group_ocr = reader.readtext(full_area_crop, detail=0)
-            full_text = " ".join(group_ocr).strip()
-
-            letreros_detectados.append({
-                "group_box": [x1_all, y1_all, x2_all, y2_all],
-                "group_text": full_text
-            })
-
-            cv2.rectangle(img_orig, (x1_all, y1_all), (x2_all, y2_all), (0, 255, 0), 2)
-            cv2.putText(img_orig, "[GROUP OCR]", (x1_all, y1_all - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-        # Save JSON
-        with open(output_json, 'w', encoding='utf-8') as f:
-            json.dump(letreros_detectados, f, ensure_ascii=False, indent=2)
-
-        # Show image inline
-        img_rgb = cv2.cvtColor(img_orig, cv2.COLOR_BGR2RGB)
-        plt.figure(figsize=(12, 8))
-        plt.imshow(img_rgb)
-        plt.axis("off")
-        plt.title("Minibus Signs Detected")
-        plt.show()
-
-        #eliminar cache y reducir consumo acumulativo VRAM cuda
-        self.clear_gpu_cache()
-        print(letreros_detectados)
+            signText= readerImg(resized_sign)
+            labels.append(signText)
         
-        return ", ".join([d['text'] for d in letreros_detectados if d['text']])
+        if len(labels)==0:
+            return "no se encontraron letreros, intente nuevamente"
+
+        self.clear_gpu_cache() 
+        #print(labels)   
+            
+        return " ".join(labels).strip()
     
     def clear_gpu_cache(self):
         if torch.cuda.is_available():

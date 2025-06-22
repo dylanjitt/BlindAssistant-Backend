@@ -81,7 +81,7 @@ def detect_minibus_sign(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Image format not supported"
         )
 
-    result = sign_model.showMinibusSign(img_bgr,n=10)
+    result = sign_model.showMinibusSign(img_bgr)
     print(result)
     return JSONResponse(content={"description":result})
 
